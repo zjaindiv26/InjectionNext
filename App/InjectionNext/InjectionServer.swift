@@ -160,6 +160,18 @@ class InjectionServer: SimpleSocket {
                 if let platform = readString(), let arch = readString() {
                     log("Platform connected: "+platform)
                     
+                    // Auto-enable device mode if physical device connects
+                    let isPhysicalDevice = platform.hasSuffix("OS") && !platform.contains("macOS")
+                    if isPhysicalDevice {
+                        DispatchQueue.main.async {
+                            // Check if device mode is not already enabled
+                            if AppDelegate.ui.enableDevicesItem.state != .on {
+                                self.log("🔥 Physical device detected - automatically enabling device mode")
+                                AppDelegate.ui.deviceEnable(nil)
+                            }
+                        }
+                    }
+                    
                     // Detect platform change (simulator ↔ device switch)
                     let platformChanged = !self.platform.isEmpty && self.platform != platform
                     
