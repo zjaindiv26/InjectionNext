@@ -45,6 +45,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @IBOutlet weak var patchCompilerItem: NSMenuItem!
     @IBOutlet weak var enableDevicesItem: NSMenuItem!
     @IBOutlet weak var watchDirectoryItem: NSMenuItem!
+    @IBOutlet weak var autoUnhideItem: NSMenuItem!
+    @IBOutlet weak var autoRecoveryItem: NSMenuItem!
 
     // Interface to app's persistent state.
     @objc let defaults = Defaults.userDefaults
@@ -116,7 +118,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
  
         setupCodeSigningComboBox()
         restartDeviceItem.state = Defaults.xcodeRestart ? .on : .off
+        autoUnhideItem?.state = Defaults.autoUnhideSymbols ? .on : .off
+        autoRecoveryItem?.state = Defaults.autoRecoveryEnabled ? .on : .off
         selectXcodeItem.toolTip = Defaults.xcodePath
+
+        // Listen for codesigning identity changes from build script
+        setupCodesigningIdentityObserver()
 
 //        #if DEBUG
 //        if NSHomeDirectory() == "/Users/johnholdsworth",
@@ -210,12 +217,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Defaults.xcodeRestart = sender.state.toggle() == .on
     }
 
+    @IBAction func toggleAutoUnhide(_ sender: NSMenuItem) {
+        Defaults.autoUnhideSymbols.toggle()
+        sender.state = Defaults.autoUnhideSymbols ? .on : .off
+        let status = Defaults.autoUnhideSymbols ? "enabled" : "disabled"
+        InjectionServer.error("Automatic symbol unhiding \(status). Restart app to take effect.")
+    }
+    
+    @IBAction func toggleAutoRecovery(_ sender: NSMenuItem) {
+        Defaults.autoRecoveryEnabled.toggle()
+        sender.state = Defaults.autoRecoveryEnabled ? .on : .off
+        let status = Defaults.autoRecoveryEnabled ? "enabled" : "disabled"
+        InjectionServer.error("Auto-recovery \(status). Takes effect immediately.")
+    }
+    
     @IBAction func unhideSymbols(_ sender: NSMenuItem) {
         Unhider.startUnhide()
     }
 
     @IBAction func resetUnhiding(_ sender: NSMenuItem) {
         Unhider.unhiddens.removeAll()
+        Unhider.hasAutoUnhidden = false
+        InjectionServer.error("Unhiding cache reset.")
     }
 
     @IBAction func showlastError(_ sender: NSMenuItem) {
@@ -239,6 +262,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         codeSignBox.target = userIDComboBoxDataSaver
         codeSignBox.action = #selector(UserIDComboBoxDataSaver.comboBoxValueDidChange(_:))
+    }
+
+    func setupCodesigningIdentityObserver() {
+        // Watch for changes to codesigning identity in UserDefaults
+        // This allows automatic detection when copy_bundle.sh writes the identity
+        defaults.addObserver(self, forKeyPath: Defaults.codesigningDefault,
+                           options: [.new], context: nil)
+    }
+
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?,
+                              change: [NSKeyValueChangeKey : Any]?,
+                              context: UnsafeMutableRawPointer?) {
+        if keyPath == Defaults.codesigningDefault,
+           let newIdentity = change?[NSKeyValueChangeKey.newKey] as? String,
+           !newIdentity.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                
+                // Find matching identity in the list
+                if let matchingIdentity = self.userIDComboBoxDataSaver.validCodeSigningIDs
+                    .first(where: { $0.containedSHA1 == newIdentity.containedSHA1 }) {
+                    self.codeSignBox.stringValue = matchingIdentity
+                    InjectionServer.error("Auto-detected codesigning identity: \(newIdentity)")
+                }
+            }
+        }
+    }
+
+    deinit {
+        defaults.removeObserver(self, forKeyPath: Defaults.codesigningDefault)
     }
 }
 

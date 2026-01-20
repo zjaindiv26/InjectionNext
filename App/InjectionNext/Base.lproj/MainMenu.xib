@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23504" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24128" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23504"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24128"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <objects>
@@ -15,6 +15,8 @@
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <customObject id="Voe-Tx-rLC" customClass="AppDelegate">
             <connections>
+                <outlet property="autoRecoveryItem" destination="AUH-8j-49e" id="AUH-vS-9mL"/>
+                <outlet property="autoUnhideItem" destination="AUH-8j-48e" id="AUH-vS-8mL"/>
                 <outlet property="codeSignBox" destination="iKZ-P7-T7T" id="KiT-vS-8mL"/>
                 <outlet property="deviceTesting" destination="SQv-Cq-gPC" id="wzU-n5-tvW"/>
                 <outlet property="enableDevicesItem" destination="s0A-3D-ThA" id="xl4-eT-1mM"/>
@@ -716,6 +718,13 @@
                         </items>
                     </menu>
                 </menuItem>
+                <menuItem title="Auto-Unhide Symbols" toolTip="Automatically unhide default argument generators on first compilation" id="AUH-8j-48e">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <accessibility description="Auto-Unhide symbols"/>
+                    <connections>
+                        <action selector="toggleAutoUnhide:" target="Voe-Tx-rLC" id="AUH-3s-BHb"/>
+                    </connections>
+                </menuItem>
                 <menuItem title="Unhide Symbols" toolTip="Make a pass over object files &quot;unhiding&quot; defualt argument generators" id="FEE-8j-48e">
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <accessibility description="Unhide symbols"/>
@@ -730,11 +739,19 @@
                         <action selector="showlastError:" target="Voe-Tx-rLC" id="B1J-ZX-nPf"/>
                     </connections>
                 </menuItem>
-                <menuItem title="Reset Unhiding" hidden="YES" toolTip="Reset internal storage" id="ysc-5y-buR">
+                <menuItem title="Reset Unhide Symbols" toolTip="Reset internal storage" id="ysc-5y-buR">
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <accessibility description="Rest Unhiding"/>
                     <connections>
                         <action selector="resetUnhiding:" target="Voe-Tx-rLC" id="wee-I2-883"/>
+                    </connections>
+                </menuItem>
+                <menuItem isSeparatorItem="YES" id="sep-AR-001"/>
+                <menuItem title="Enable Auto-Recovery" toolTip="Automatically re-inject after git operations, branch switches, or platform changes" id="AUH-8j-49e">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <accessibility description="Auto Recovery Toggle"/>
+                    <connections>
+                        <action selector="toggleAutoRecovery:" target="Voe-Tx-rLC" id="AUH-AR-49e"/>
                     </connections>
                 </menuItem>
                 <menuItem title="Quit InjectionNext" toolTip="Quit InjectionNext" id="LUw-n8-2Gj">
@@ -752,7 +769,7 @@
             <windowStyleMask key="styleMask" titled="YES" closable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
             <rect key="contentRect" x="1355" y="786" width="737" height="204"/>
-            <rect key="screenRect" x="0.0" y="0.0" width="2048" height="1127"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1800" height="1125"/>
             <view key="contentView" id="Qow-ez-PwQ">
                 <rect key="frame" x="0.0" y="0.0" width="737" height="204"/>
                 <autoresizingMask key="autoresizingMask"/>
@@ -811,7 +828,7 @@
             <windowStyleMask key="styleMask" titled="YES" closable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
             <rect key="contentRect" x="1355" y="786" width="688" height="268"/>
-            <rect key="screenRect" x="0.0" y="0.0" width="2048" height="1127"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1800" height="1125"/>
             <view key="contentView" id="kR1-2l-DFV">
                 <rect key="frame" x="0.0" y="0.0" width="688" height="268"/>
                 <autoresizingMask key="autoresizingMask"/>
@@ -820,15 +837,15 @@
                         <rect key="frame" x="8" y="10" width="670" height="251"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <clipView key="contentView" drawsBackground="NO" id="Jya-oY-Tsg">
-                            <rect key="frame" x="0.0" y="0.0" width="670" height="251"/>
+                            <rect key="frame" x="0.0" y="0.0" width="655" height="251"/>
                             <autoresizingMask key="autoresizingMask"/>
                             <subviews>
                                 <textView wantsLayer="YES" editable="NO" importsGraphics="NO" richText="NO" verticallyResizable="YES" spellingCorrection="YES" smartInsertDelete="YES" id="yfA-aU-ldx">
-                                    <rect key="frame" x="0.0" y="0.0" width="670" height="251"/>
+                                    <rect key="frame" x="0.0" y="0.0" width="655" height="251"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                     <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
                                     <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                    <size key="minSize" width="670" height="251"/>
+                                    <size key="minSize" width="655" height="251"/>
                                     <size key="maxSize" width="675" height="10000000"/>
                                 </textView>
                             </subviews>

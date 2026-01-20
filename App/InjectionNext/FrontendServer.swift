@@ -78,6 +78,15 @@ class FrontendServer: SimpleSocket {
             InjectionServer.error("Unable to write commands cache: \(error)")
         }
     }
+    
+    /// Clear all cached recompilers - called after git operations or platform switches
+    static func clearAllCaches() {
+        for (platform, recompiler) in recompilers {
+            recompiler.clearCache()
+            print("Cleared \(platform) compilation cache")
+        }
+        recompilers.removeAll()
+    }
 
     func validateConnection() -> Bool {
         return readInt() == COMMANDS_VERSION && readString() == NSHomeDirectory()

@@ -58,10 +58,14 @@ class InjectionHybrid: InjectionBase {
     static var isRepositoryLocked = false
     /// Path to detected git lock file - used to check if git operation still active
     static var gitLockPath: String?
+    /// Timestamp of when lock was detected
+    static var lockDetectedTime: TimeInterval?
     /// InjectionNext compiler that uses InjectionLite log parser
     var liteRecompiler: NextCompiler = HybridCompiler()
     /// Minimum seconds between injections
     let minInterval = 1.0
+    /// Seconds to wait after git lock clears before auto-recovery
+    let gitRecoveryDelay = 2.0
 
     override init() {
         super.init()
@@ -72,20 +76,56 @@ class InjectionHybrid: InjectionBase {
 
     /// Called from file watcher when file is edited.
     override func inject(source: String) {
-        // Detect git lock files - record path for later checking
+        // Detect git lock files - record path and time for later checking
         if source.hasSuffix(".lock") &&
            source.contains("/.git/") {
             Self.gitLockPath = source
+            Self.lockDetectedTime = Date().timeIntervalSince1970
             return
         }
 
-        // Skip processing if repository is already locked
+        // Check for auto-recovery from git operations
         if Self.isRepositoryLocked {
-            log("""
-                File processing stopped due to git lock. \
-                Please relaunch your app to resume injection.
-                """)
-            return
+            // Check if enough time has passed since lock detection
+            if let lockTime = Self.lockDetectedTime,
+               Date().timeIntervalSince1970 - lockTime > gitRecoveryDelay,
+               Self.gitLockPath == nil || !FileManager.default.fileExists(atPath: Self.gitLockPath!) {
+                // Git operation completed - auto-recover
+                log("🔄 Git operation completed - auto-recovering and clearing cache")
+                Self.isRepositoryLocked = false
+                Self.lockDetectedTime = nil
+                
+                // Clear all caches as DerivedData likely changed
+                MonitorXcode.runningXcode?.recompiler.clearCache()
+                liteRecompiler.clearCache()
+                FrontendServer.clearAllCaches()
+                Unhider.unhiddens.removeAll()
+                Unhider.hasAutoUnhidden = false
+                
+                // Trigger auto-recovery: re-inject last successfully injected file (if enabled)
+                if Defaults.autoRecoveryEnabled,
+                   let lastSource = NextCompiler.lastInjectedSource,
+                   FileManager.default.fileExists(atPath: lastSource) {
+                    
+                    // Verify client is connected before attempting recovery
+                    guard InjectionServer.currentClient != nil else {
+                        log("⚠️ Git recovery skipped: No client connected. App may need to be relaunched.")
+                        log("✅ Cache cleared - injection ready when app reconnects.")
+                        return
+                    }
+                    
+                    log("🔄 Auto-recovering: triggering re-injection of last file")
+                    // Add to pending queue to trigger recompilation
+                    Self.pendingFilesChanged.append(lastSource)
+                    NextCompiler.compileQueue.async { self.injectNext() }
+                    return
+                }
+                
+                log("✅ Cache cleared - injection ready. \(Defaults.autoRecoveryEnabled ? "Auto-recovery will activate on next file save." : "Save a file to rebuild compilation info.")")
+            } else {
+                // Still locked - skip processing
+                return
+            }
         }
 
         // Check if source file is changing while git lock still exists
@@ -94,15 +134,15 @@ class InjectionHybrid: InjectionBase {
                 // Source files changing while git lock exists = branch switch/merge/rebase
                 Self.isRepositoryLocked = true
                 Self.pendingFilesChanged.removeAll()
-                Self.gitLockPath = nil
                 log("""
                     Git operation in progress (branch switch/merge/rebase detected). \
-                    File processing stopped. Please relaunch your app to resume injection.
+                    File processing paused. Will auto-recover when operation completes.
                     """)
                 return
             } else {
-                // Lock file is gone - was probably just a commit
+                // Lock file is gone - was probably just a commit (no recovery needed)
                 Self.gitLockPath = nil
+                Self.lockDetectedTime = nil
             }
         }
 

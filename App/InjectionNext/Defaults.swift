@@ -62,4 +62,28 @@ struct Defaults {
             userDefaults.string(forKey: projectPathDefault)
         }
     }
+    
+    private static let autoUnhideDefault = "autoUnhideSymbols"
+    static var autoUnhideSymbols: Bool {
+        get {
+            // Default to true if not set
+            if userDefaults.value(forKey: autoUnhideDefault) == nil { return true }
+            return userDefaults.bool(forKey: autoUnhideDefault)
+        }
+        set {
+            userDefaults.setValue(newValue, forKey: autoUnhideDefault)
+        }
+    }
+    
+    private static let autoRecoveryDefault = "autoRecoveryEnabled"
+    static var autoRecoveryEnabled: Bool {
+        get {
+            // Default to true if not set
+            if userDefaults.value(forKey: autoRecoveryDefault) == nil { return true }
+            return userDefaults.bool(forKey: autoRecoveryDefault)
+        }
+        set {
+            userDefaults.setValue(newValue, forKey: autoRecoveryDefault)
+        }
+    }
 }

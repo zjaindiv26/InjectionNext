@@ -63,7 +63,8 @@ class InjectionServer: SimpleSocket {
 
     // Send command to client app
     func sendCommand(_ command: InjectionCommand, with string: String?) {
-        Self.clientQueue.async {
+        Self.clientQueue.async { [weak self] in
+            guard let self = self else { return }
             _ = self.writeCommand(command.rawValue, with: string)
         }
     }
@@ -123,7 +124,8 @@ class InjectionServer: SimpleSocket {
                     error("Connection did not validate.")
                     return
                 }
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
                     InjectionHybrid.pendingFilesChanged.removeAll()
                     // Reset repository locked state on app reconnect (relaunch)
                     if InjectionHybrid.isRepositoryLocked {
@@ -157,9 +159,52 @@ class InjectionServer: SimpleSocket {
             case .platform:
                 if let platform = readString(), let arch = readString() {
                     log("Platform connected: "+platform)
+                    
+                    // Detect platform change (simulator ↔ device switch)
+                    let platformChanged = !self.platform.isEmpty && self.platform != platform
+                    
                     self.platform = platform
                     Reloader.arch = arch
                     self.arch = arch
+                    
+                    if platformChanged {
+                        log("⚠️ Platform changed - clearing cache\(Defaults.autoRecoveryEnabled ? " and triggering auto-recovery" : "")")
+                        NextCompiler.compileQueue.async { [weak self] in
+                            guard let self = self else { return }
+                            
+                            MonitorXcode.runningXcode?.recompiler.clearCache()
+                            FrontendServer.clearAllCaches()
+                            
+                            // Trigger auto-recovery: re-inject last file for new platform (if enabled)
+                            if Defaults.autoRecoveryEnabled,
+                               let lastSource = NextCompiler.lastInjectedSource,
+                               FileManager.default.fileExists(atPath: lastSource) {
+                                self.log("🔄 Auto-recovering: re-injecting for new platform")
+                                
+                                // Restart watcher if using file watching
+                                if !AppDelegate.watchers.isEmpty {
+                                    AppDelegate.restartLastWatcher()
+                                }
+                                
+                                // Delay to allow watcher to restart and ensure connection is stable
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                                    guard let self = self else { return }
+                                    // Verify client still connected before injecting
+                                    guard InjectionServer.currentClient != nil else {
+                                        self.log("⚠️ Auto-recovery skipped: Client disconnected")
+                                        return
+                                    }
+                                    
+                                    if let running = MonitorXcode.runningXcode {
+                                        let success = running.recompiler.inject(source: lastSource)
+                                        if !success {
+                                            self.log("⚠️ Platform switch recovery failed. Try saving a file manually.")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     error("**** Bad platform ****")
                     return
@@ -170,8 +215,41 @@ class InjectionServer: SimpleSocket {
                     self.tmpPath = tmpPath
                     self.tmpPath[#"/$"#] = "" // strip trailing slash
                     if !tmpPath.contains("/Xcode/UserData/Previews/") {
-                        NextCompiler.compileQueue.async {
+                        NextCompiler.compileQueue.async { [weak self] in
+                            guard let self = self else { return }
                             Self.connected.append(ClientConnection(connection: self))
+                        }
+                    }
+                    
+                    // Clear git lock state on app reconnect to allow recovery
+                    InjectionHybrid.isRepositoryLocked = false
+                    InjectionHybrid.lockDetectedTime = nil
+                    log("App connected - git lock state reset")
+                    
+                    // Trigger auto-recovery on app reconnect (handles project close/open, if enabled)
+                    if Defaults.autoRecoveryEnabled,
+                       let lastSource = NextCompiler.lastInjectedSource,
+                       FileManager.default.fileExists(atPath: lastSource) {
+                        log("🔄 App reconnected - triggering auto-recovery")
+                        NextCompiler.compileQueue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                            guard let self = self else { return }
+                            // Verify connection is still active
+                            guard InjectionServer.currentClient != nil else {
+                                self.log("⚠️ Auto-recovery skipped: Client disconnected during delay")
+                                return
+                            }
+                            
+                            if let running = MonitorXcode.runningXcode {
+                                let success = running.recompiler.inject(source: lastSource)
+                                if !success {
+                                    self.log("⚠️ App reconnect recovery failed. Try saving a file manually.")
+                                }
+                            } else if !AppDelegate.watchers.isEmpty {
+                                // Use file watcher path if available
+                                AppDelegate.restartLastWatcher()
+                            } else {
+                                self.log("⚠️ Auto-recovery skipped: No Xcode monitoring or file watcher active")
+                            }
                         }
                     }
                 } else {
@@ -181,7 +259,7 @@ class InjectionServer: SimpleSocket {
                     AppDelegate.watchers.isEmpty &&
                     AppDelegate.ui.updatePatchUnpatch() == .unpatched {
                     error("""
-                        Xcode not launched via app. Injection will not be possible \ 
+                        Xcode not launched via app. Injection will not be possible \
                         unless you file-watch a project and Xcode logs are available \
                         or use the "Intercept Compiler" menu item.
                         """)

@@ -47,6 +47,8 @@ class NextCompiler {
     static let compileQueue = DispatchQueue(label: "InjectionCompile")
     /// Last build error.
     static var lastError: String?, lastSource: String?
+    /// Last successfully injected source for auto-recovery
+    static var lastInjectedSource: String?
 
     /// Tracks timing metrics for injection process
     final class InjectionMetricsTracker: Codable {
@@ -82,6 +84,10 @@ class NextCompiler {
     var prepared = [String: String]()
     /// Default counter for Compilertron
     var compileNumber = 0
+    /// Track DerivedData path for cache invalidation
+    var derivedDataPath: String?
+    /// Prevent recursive cache clears during recovery
+    private var isRecovering = false
 
     func error(_ msg: String) -> Bool {
         let msg = "⚠️ "+msg
@@ -92,13 +98,106 @@ class NextCompiler {
     func error(_ err: Error) -> Bool {
         error("Internal app error: \(err)")
     }
+    
+    /// Extract DerivedData path from compilation arguments
+    private func extractDerivedDataPath(from args: [String]) -> String? {
+        // Look for DerivedData in module cache or build paths
+        for (index, arg) in args.enumerated() {
+            if (arg == "-fmodule-cache-path" || arg.contains("DerivedData")) {
+                let path = arg == "-fmodule-cache-path" && index + 1 < args.count
+                    ? args[index + 1] : arg
+                
+                // Extract the full DerivedData project-specific path (includes hash)
+                // Pattern: /DerivedData/ProjectName-hash/
+                if let range = path.range(of: "/DerivedData/[^/]+-[a-z0-9]+", options: .regularExpression) {
+                    return String(path[range])
+                }
+                // Fallback: just project name without hash
+                else if let range = path.range(of: "/DerivedData/[^/]+", options: .regularExpression) {
+                    return String(path[range])
+                }
+            }
+        }
+        return nil
+    }
+    
+    /// Clear compilation cache - called when DerivedData path changes
+    func clearCache(triggerRecovery: Bool = false) {
+        compilations.removeAll()
+        lastCompilation = nil
+        prepared.removeAll()
+        lastInjected.removeAll()
+        log("Compilation cache cleared")
+        
+        // Optionally trigger auto-recovery after cache clear (if enabled)
+        if triggerRecovery, Defaults.autoRecoveryEnabled,
+           let lastSource = Self.lastInjectedSource,
+           FileManager.default.fileExists(atPath: lastSource) {
+            // Check if client is connected before attempting recovery
+            guard InjectionServer.currentClient != nil else {
+                log("⚠️ Auto-recovery skipped: No client connected")
+                return
+            }
+            
+            log("🔄 Triggering auto-recovery after cache clear")
+            isRecovering = true
+            
+            Self.compileQueue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self else { return }
+                
+                defer { self.isRecovering = false }
+                
+                // Verify file still exists and is readable
+                guard FileManager.default.isReadableFile(atPath: lastSource) else {
+                    log("⚠️ Auto-recovery skipped: Last injected file no longer accessible")
+                    log("   File: \(lastSource)")
+                    log("   Save any project file to rebuild compilation info.")
+                    return
+                }
+                
+                let success = self.inject(source: lastSource)
+                
+                if !success {
+                    log("⚠️ Auto-recovery injection failed. Possible causes:")
+                    log("   - File may not be part of current build target")
+                    log("   - Compilation info not yet available")
+                    log("   - Build settings may have changed")
+                    log("   Try saving the file manually or building the project first.")
+                }
+            }
+        }
+    }
 
     func store(compilation: Compilation, for source: String) {
         Self.lastSource = source
+        
+        // Extract DerivedData path from arguments for cache invalidation
+        let newDerivedDataPath = extractDerivedDataPath(from: compilation.arguments)
+        
+        // Detect DerivedData path change (branch switch, platform change, etc.)
+        // Skip if already recovering to prevent recursive loops
+        if !isRecovering,
+           let currentPath = derivedDataPath,
+           let newPath = newDerivedDataPath,
+           currentPath != newPath {
+            log("⚠️ DerivedData path changed - clearing cache and triggering auto-recovery")
+            log("   Was: \(currentPath)")
+            log("   Now: \(newPath)")
+            clearCache(triggerRecovery: true)
+        }
+        
+        if let newPath = newDerivedDataPath {
+            derivedDataPath = newPath
+        }
+        
         if lastCompilation != compilation {
             lastCompilation = compilation
         } //else { print("reusing") }
         compilations[source] = lastCompilation
+        
+        // Trigger automatic unhiding on first compilation (once per session)
+        Unhider.startUnhide(isAutomatic: true)
+        
         if source == pendingSource {
             print("Delayed injection of "+source)
             if inject(source: source) {
@@ -142,6 +241,7 @@ class NextCompiler {
                 }
                 }
                 Self.lastSource = source
+                Self.lastInjectedSource = source  // Track for auto-recovery
                 return true
             }
 

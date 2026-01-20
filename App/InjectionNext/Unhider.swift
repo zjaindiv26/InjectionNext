@@ -26,23 +26,47 @@ open class Unhider {
     static var lastUnhidden = [String: Date]()
     /// Used to determine the path to the project's DerivedData
     static var packageFrameworks: String?
+    /// Track if we've already run auto-unhide for this session
+    static var hasAutoUnhidden = false
 
     /// Entry point for user initiated or perhaps one day automatic unhiding.
-    open class func startUnhide() {
+    open class func startUnhide(isAutomatic: Bool = false) {
+        // Skip if automatic and already run in this session
+        if isAutomatic && hasAutoUnhidden {
+            return
+        }
+        
+        // Skip if automatic unhiding is disabled
+        if isAutomatic && !Defaults.autoUnhideSymbols {
+            return
+        }
+        
         guard var derivedData = (packageFrameworks ??
                                  Recompiler.packageFrameworks)
             .flatMap({ URL(fileURLWithPath: $0) }) else {
-            log("⚠️ packageFrameworks not set, view a Swift source.")
+            if !isAutomatic {
+                log("⚠️ packageFrameworks not set, view a Swift source.")
+            }
             return
         }
         for _ in 1...(packageFrameworks != nil ? 5 : 4) {
             derivedData.deleteLastPathComponent()
         }
+        
+        if isAutomatic {
+            log("🔓 Running automatic symbol unhiding...")
+        }
+        
         unhideQueue.async {
             do {
                 try Fortify.protect {
                     try unhideAllObjects(intermediates: derivedData
                         .appendingPathComponent("Build/Intermediates.noindex"))
+                    
+                    // Mark as completed for this session
+                    if isAutomatic {
+                        hasAutoUnhidden = true
+                    }
                 }
             } catch {
                 log("⚠️ Unhide error: \(error)")
