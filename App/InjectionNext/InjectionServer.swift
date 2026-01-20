@@ -160,19 +160,27 @@ class InjectionServer: SimpleSocket {
                 if let platform = readString(), let arch = readString() {
                     log("Platform connected: "+platform)
                     
-                    // Auto-enable device mode if physical device connects
+                    // Register this client connection
+                    Self.clientQueue.sync {
+                        if !Self.connected.contains(where: { $0.connection === self }) {
+                            Self.connected.append(ClientConnection(connection: self))
+                        }
+                    }
+                    
+                    // Log codesigning identity for physical devices
                     let isPhysicalDevice = platform.hasSuffix("OS") && !platform.contains("macOS")
                     if isPhysicalDevice {
                         DispatchQueue.main.async {
-                            // Check if device mode is not already enabled
-                            if AppDelegate.ui.enableDevicesItem.state != .on {
-                                self.log("🔥 Physical device detected - automatically enabling device mode")
-                                AppDelegate.ui.deviceEnable(nil)
+                            let identity = AppDelegate.ui.codeSigningID
+                            if !identity.isEmpty {
+                                self.log("Using codesigning identity: \(identity)")
+                            } else {
+                                self.log("⚠️ No codesigning identity selected. Select one from the menu bar app.")
                             }
                         }
                     }
                     
-                    // Detect platform change (simulator ↔ device switch)
+                    // Detect platform change (simulator ↔ device switch) BEFORE updating
                     let platformChanged = !self.platform.isEmpty && self.platform != platform
                     
                     self.platform = platform

@@ -95,10 +95,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         librariesField.stringValue = Defaults.deviceLibraries
-        let enableDevicesSticky = false
-        if !enableDevicesSticky || Defaults.codesigningIdentity == nil {
-            enableDevicesItem.state = .on
-        }
+        // Always enable devices at launch for seamless physical device connection
+        enableDevicesItem.state = .on
         deviceEnable(nil)
         if let xcodePath = NSRunningApplication
             .runningApplications(withBundleIdentifier: "com.apple.dt.Xcode")
